@@ -5,7 +5,7 @@ using Markdown
 using InteractiveUtils
 
 # ╔═╡ 5abf5538-4cf6-11f0-2954-0b1370ffccc3
-using Images, MosaicViews
+using Images, MosaicViews, StatsBase
 
 # ╔═╡ 83330c12-6f0e-44f3-9559-4fa65b2e3941
 ## Input Image
@@ -181,6 +181,121 @@ opened_img = Gray.(do_opening(img_binary, se_square))
 closed_img = Gray.(do_closing(img_binary, se_square))
 
 # ╔═╡ 47a9ac61-2996-47ca-83d3-5c8aecc4923a
+## Connected Components Analysis
+
+# ╔═╡ bb1d7bf6-fecd-4173-88a4-3c3d17b91000
+function connected_components_labeling(img::BitMatrix)
+	## Get size of input image
+    rows, cols = size(img)
+	## Create a empty canvas for labeling
+    labeled_image = zeros(Int, rows, cols)
+	## next label value which gets incremented after every labeling
+    next_label = 1
+	## Equivalance Table
+    equivalences = Dict{Int, Int}()
+    ## Pass 1
+	## Check for upper and left pixel
+    for i in axes(img, 1), j in axes(img, 2)
+        if img[i, j]
+			## Check if pixel above or left exists
+            upper_label = i > 1 ? labeled_image[i-1, j] : 0
+            left_label = j > 1 ? labeled_image[i, j-1] : 0
+			## If both upper and left pixel have no labels, give new label to current pixel
+            if upper_label == 0 && left_label == 0
+                labeled_image[i, j] = next_label
+                next_label += 1
+			## If upper pixel have a label and left pixel does not, give upper label to current pixel
+            elseif upper_label != 0 && left_label == 0
+                labeled_image[i, j] = upper_label
+			## If upper pixel does not have a label and left pixel have a label, give the left label to current pixel
+            elseif upper_label == 0 && left_label != 0
+                labeled_image[i, j] = left_label
+			## If both upper and left pixels have label
+            elseif upper_label != 0 && left_label != 0
+				## If both upper and left pixels have same label, give the label to the current pixel
+                if upper_label == left_label
+                    labeled_image[i, j] = upper_label
+				## Else, give minimum label number to the current pixel and put both upper and left label in equivalence table
+				## This indicates that both the upper and left label are connected and one single object
+                else
+                    labeled_image[i, j] = min(upper_label, left_label)
+                    equivalences[max(upper_label, left_label)] = min(upper_label, left_label)
+                end
+            end
+        end
+    end
+    
+    ## Pass 2 
+	## Loop through every key in equivalence table
+    for label in keys(equivalences)
+		## Get the value and find the root label by following the chain
+        root = equivalences[label]
+        while haskey(equivalences, root)
+            root = equivalences[root]
+        end
+        ## Update the equivalence table with the final root to compress paths
+        equivalences[label] = root
+    end
+    
+    ## Create final labeled image by replacing all equivalent labels with their root labels
+    final_labeled_image = zeros(Int, rows, cols)
+    ## Loop through every pixel in the labeled image
+    for i in axes(labeled_image, 1), j in axes(labeled_image, 2)
+        current_label = labeled_image[i, j]
+        ## If pixel has a label (not background)
+        if current_label != 0
+            ## Replace with root label if it exists in equivalences, otherwise keep original
+            final_labeled_image[i, j] = get(equivalences, current_label, current_label)
+        end
+    end
+    return final_labeled_image
+end
+
+# ╔═╡ e9a42cd3-79d6-472a-acb8-583d376d22cc
+function extract_components(labeled_image::Matrix{Int})
+    ## Get all unique labels from labeled image, excluding background (0) and sort them
+    unique_labels = sort(filter(label -> label != 0, unique(labeled_image)))
+    
+    ## Initialize vector to store individual component masks
+    component_images = Vector{BitMatrix}()
+    
+    ## Create a binary mask for each component
+    for label in unique_labels
+        ## Create binary mask where only pixels with current label are true
+        component_mask = (labeled_image .== label)
+        ## Add the component mask to our collection
+        push!(component_images, component_mask)
+    end
+    
+    return component_images
+end
+
+# ╔═╡ bcacf5c1-ec0e-437a-bab8-c9e73895750b
+function filter_components_by_size(labeled_image::Matrix{Int}; min_size::Int=1, max_size::Int=typemax(Int))
+    
+    ## Count how many pixels each label has (area of each component)
+    component_areas = countmap(labeled_image)
+    
+    ## Remove background label (0) from area counts since we don't want to filter it
+    delete!(component_areas, 0)
+    ## Initialize set to store labels of components that meet size criteria
+    labels_to_keep = Set{Int}()
+    ## Check each component's area against size thresholds
+    for (label, area) in component_areas
+        ## If component size is within specified range, mark it for keeping
+        if area >= min_size && area <= max_size
+            push!(labels_to_keep, label)
+        end
+    end
+	
+    ## Create filtered image where only components meeting size criteria are kept
+    ## All other components are set to 0 (background)
+    filtered_image = map(label -> (label in labels_to_keep) ? label : 0, labeled_image)
+    
+    return filtered_image
+end
+
+# ╔═╡ e6b0d84e-88d8-4546-8ed5-47de5e842ebc
 
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
@@ -188,10 +303,12 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 Images = "916415d5-f1e6-5110-898d-aaa5f9f070e0"
 MosaicViews = "e94cdb99-869f-56ef-bcf0-1ae2bcbe0389"
+StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
 Images = "~0.26.2"
 MosaicViews = "~0.3.4"
+StatsBase = "~0.34.5"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -200,7 +317,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.5"
 manifest_format = "2.0"
-project_hash = "2bc35038ab140cbf144b5473e620119b0fbbcf71"
+project_hash = "c0501339b8c10ab13f8bdd330cf977ed98b1551b"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -1476,5 +1593,9 @@ version = "17.4.0+2"
 # ╠═33661b2a-ce00-4d04-bf86-23f8aa9e993f
 # ╠═33c3e014-9966-4263-9373-555d02e07c0e
 # ╠═47a9ac61-2996-47ca-83d3-5c8aecc4923a
+# ╠═bb1d7bf6-fecd-4173-88a4-3c3d17b91000
+# ╠═e9a42cd3-79d6-472a-acb8-583d376d22cc
+# ╠═bcacf5c1-ec0e-437a-bab8-c9e73895750b
+# ╠═e6b0d84e-88d8-4546-8ed5-47de5e842ebc
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
