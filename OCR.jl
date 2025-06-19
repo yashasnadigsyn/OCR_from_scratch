@@ -9,16 +9,26 @@ using Images, MosaicViews
 
 # ╔═╡ 83330c12-6f0e-44f3-9559-4fa65b2e3941
 ## Input Image
-img = Gray.(load("img.png"))
+img = Gray.(load("img2.png"))
 
 # ╔═╡ 07262d55-bff7-4637-beff-de5316dc2db0
 img_binary = img .> 0.5
+
+# ╔═╡ 036ad6aa-a8a4-4075-90c4-5d00160cf6e7
+## Define a Structuring Element
+
+## Square
+se_square = trues(3, 3)
+
+# ╔═╡ 18e3a19c-e569-4254-9797-0adc0202cd86
+## Diamond
+se_diamond = BitMatrix(Bool[0 1 0; 1 1 1; 0 1 0])
 
 # ╔═╡ 892ab841-3e5d-4dfc-9484-2054cb4db2df
 ## Dilation
 
 # ╔═╡ 0577a9a4-7f45-413a-bd40-2a84b3b385de
-function do_dilation(img::BitMatrix, se::BitMatrix)
+function do_dilate(img::BitMatrix, se::BitMatrix)
 	## Get size of the image and the structuring element (SE)
 	img_rows, img_cols = size(img)
 	se_rows, se_cols = size(se)
@@ -54,21 +64,11 @@ function do_dilation(img::BitMatrix, se::BitMatrix)
 	return out_img
 end
 
-# ╔═╡ 036ad6aa-a8a4-4075-90c4-5d00160cf6e7
-## Define a Structuring Element
-
-## Square
-se_square = trues(3, 3)
-
-# ╔═╡ 18e3a19c-e569-4254-9797-0adc0202cd86
-## Diamond
-se_diamond = BitMatrix(Bool[0 1 0; 1 1 1; 0 1 0])
-
 # ╔═╡ e164d439-e746-45e9-ae05-81a419d37a98
-dilated_img_square = Gray.(do_dilation(img_binary, se_square))
+dilated_img_square = Gray.(do_dilate(img_binary, se_square))
 
 # ╔═╡ 416b2a72-05d9-40f3-be56-aaf427f0890b
-dilated_img_diamond = Gray.(do_dilation(img_binary, se_diamond))
+dilated_img_diamond = Gray.(do_dilate(img_binary, se_diamond))
 
 # ╔═╡ decda622-96da-4856-a660-cd765401709f
 mosaicview(
@@ -78,6 +78,110 @@ mosaicview(
 	nrow=1, npad=10,
 	rowlabels=["Original Binary Image", "Square SE", "Diamond SE"]
 )
+
+# ╔═╡ fd37f77e-f46d-43c4-a4d4-756d039976af
+## Erosion
+
+# ╔═╡ f9e48d02-c830-4ff5-9dcf-bb08e3dd008d
+function do_erode(img::BitMatrix, se::BitMatrix)
+    ## Get size of the image and the structuring element (SE)
+    img_rows, img_cols = size(img)
+    se_rows, se_cols = size(se)
+
+	## Create an empty image (image that we return)
+    out_img = falses(img_rows, img_cols)
+
+    ## Center of the SE
+    center_r = (se_rows + 1) ÷ 2
+    center_c = (se_cols + 1) ÷ 2
+
+    ## Iterate through every pixel of the input image
+    for r in 1:img_rows
+        for c in 1:img_cols
+            
+            ## Assume the SE fits perfectly until we prove otherwise.
+            fits = true
+            
+            ## Iterate through the SE to check all its 'true' pixels.
+            for sr in 1:se_rows
+                for sc in 1:se_cols
+                    if se[sr, sc]
+                        ## Calculate the corresponding pixel in the input image
+                        check_r = r + sr - center_r
+                        check_c = c + sc - center_c
+
+                        ## Check two things:
+                        ## 1. Is the SE trying to check a pixel outside the image boundary?
+                        ## 2. Is the image pixel at that location 'false'?
+                        ## If either is true, the SE does not fit.
+                        if !(1 <= check_r <= img_rows && 1 <= check_c <= img_cols) || !img[check_r, check_c]
+                            fits = false
+                            break
+                        end
+                    end
+                end
+                if !fits
+                    break
+                end
+            end
+
+            if fits
+                out_img[r, c] = true
+            end
+        end
+    end
+
+    return out_img
+end
+
+# ╔═╡ 31798663-3ac0-40f5-a09d-8a2e8f578c6e
+eroded_img_square = Gray.(do_erode(img_binary, se_square))
+
+# ╔═╡ 4737ec1e-177a-437d-9755-0bbba2e7b338
+eroded_img_diamond = Gray.(do_erode(img_binary, se_diamond))
+
+# ╔═╡ 52c1a762-f393-4e15-9da7-4975bc31c2ec
+## Erosion amount 4
+for _ in 1:4
+	global eroded_img_diamond_four = Gray.(do_erode(img_binary, se_diamond))
+end
+
+# ╔═╡ 12fad3c9-e393-495c-af1d-29fbaa50d3d0
+eroded_img_diamond_four
+
+# ╔═╡ 169701cd-abd2-47dd-a05c-bd2adb86d2f6
+mosaicview(
+	Gray.(img_binary),
+	Gray.(eroded_img_square),
+	Gray.(eroded_img_diamond);
+	nrow=1, npad=10,
+	rowlabels=["Original Binary Image", "Square SE", "Diamond SE"]
+)
+
+# ╔═╡ 963a35c6-f470-4178-afe5-b5623b84680e
+## Opening
+function do_opening(img::BitMatrix, se::BitMatrix)
+	eroded_img = do_erode(img, se)
+	opened_img = do_dilate(eroded_img, se)
+	return opened_img
+end
+
+# ╔═╡ cf2b288d-50f9-4ddb-b17a-65e2623e85e1
+## Closing
+function do_closing(img::BitMatrix, se::BitMatrix)
+	dilated_img = do_dilate(img, se)
+	closed_img = do_erode(dilated_img, se)
+	return closed_img
+end
+
+# ╔═╡ 33661b2a-ce00-4d04-bf86-23f8aa9e993f
+opened_img = Gray.(do_opening(img_binary, se_square))
+
+# ╔═╡ 33c3e014-9966-4263-9373-555d02e07c0e
+closed_img = Gray.(do_closing(img_binary, se_square))
+
+# ╔═╡ 47a9ac61-2996-47ca-83d3-5c8aecc4923a
+
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1353,12 +1457,24 @@ version = "17.4.0+2"
 # ╠═5abf5538-4cf6-11f0-2954-0b1370ffccc3
 # ╠═83330c12-6f0e-44f3-9559-4fa65b2e3941
 # ╠═07262d55-bff7-4637-beff-de5316dc2db0
-# ╠═892ab841-3e5d-4dfc-9484-2054cb4db2df
-# ╠═0577a9a4-7f45-413a-bd40-2a84b3b385de
 # ╠═036ad6aa-a8a4-4075-90c4-5d00160cf6e7
 # ╠═18e3a19c-e569-4254-9797-0adc0202cd86
+# ╠═892ab841-3e5d-4dfc-9484-2054cb4db2df
+# ╠═0577a9a4-7f45-413a-bd40-2a84b3b385de
 # ╠═e164d439-e746-45e9-ae05-81a419d37a98
 # ╠═416b2a72-05d9-40f3-be56-aaf427f0890b
 # ╠═decda622-96da-4856-a660-cd765401709f
+# ╠═fd37f77e-f46d-43c4-a4d4-756d039976af
+# ╠═f9e48d02-c830-4ff5-9dcf-bb08e3dd008d
+# ╠═31798663-3ac0-40f5-a09d-8a2e8f578c6e
+# ╠═4737ec1e-177a-437d-9755-0bbba2e7b338
+# ╠═52c1a762-f393-4e15-9da7-4975bc31c2ec
+# ╠═12fad3c9-e393-495c-af1d-29fbaa50d3d0
+# ╠═169701cd-abd2-47dd-a05c-bd2adb86d2f6
+# ╠═963a35c6-f470-4178-afe5-b5623b84680e
+# ╠═cf2b288d-50f9-4ddb-b17a-65e2623e85e1
+# ╠═33661b2a-ce00-4d04-bf86-23f8aa9e993f
+# ╠═33c3e014-9966-4263-9373-555d02e07c0e
+# ╠═47a9ac61-2996-47ca-83d3-5c8aecc4923a
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
